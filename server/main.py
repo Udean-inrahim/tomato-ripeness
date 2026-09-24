@@ -16,7 +16,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MODEL_PATH = os.environ.get("MODEL_PATH", "models/best.pt")
+SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.environ.get("MODEL_PATH", os.path.join(SERVER_DIR, "models/best.pt"))
 
 detector = TomatoDetector(MODEL_PATH)
 detector.load()
@@ -43,3 +44,9 @@ async def detect(request: Request):
         "image_height": result["image_height"],
         "detections": result["detections"],
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8000)

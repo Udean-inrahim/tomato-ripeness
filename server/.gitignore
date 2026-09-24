@@ -3,3 +3,9 @@ __pycache__/
 models/*.pt
 dataset/
 test_req.png
+labeling/images/
+test_input/annotated/
+test_input/*.jpg
+test_input/*.jpeg
+test_input/*.png
+tools/__pycache__/

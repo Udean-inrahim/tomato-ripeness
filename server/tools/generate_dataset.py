@@ -20,9 +20,9 @@ CLASSES = ["mentah", "setengah_matang", "matang"]
 
 # Warna dasar (RGB) tomato: (dasar, highlight offset)
 COLORS = {  # class index -> (center color, edge color)
-    0: ((96, 168, 70), (70, 120, 46)),      # mentah: hijau
-    1: ((235, 150, 45), (160, 100, 30)),    # setengah_matng: oranye
-    2: ((225, 45, 38), (150, 25, 20)),      # matang: merah
+    0: ((96, 168, 70), (70, 120, 46)),       # mentah: hijau
+    1: ((235, 150, 45), (160, 100, 30)),     # setengah_matang: oranye
+    2: ((210, 60, 45), (140, 40, 30)),        # matang: merah-oranye (lebih realistis)
 }
 
 

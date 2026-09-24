@@ -4,9 +4,8 @@ Struktur:
   server/labeling/images/*.jpg        (foto asli)
   server/labeling/labels/*.txt        (label YOLO dari tool labeling)
 
-Dataset digabung: foto asli (train + val) + dataset sintetis yang sudah ada
-di server/dataset (sebagai augmentasi dasar). data.yaml menunjuk ke dataset
-yang terisi keduanya.
+Foto asli disalin ke dataset/images/train + labels/train, digabung dengan
+dataset sintetis yang sudah ada. data.yaml menunjuk path absolut.
 
 Run:
   venv python tools/finetune.py [epochs] [imgsz]
@@ -16,11 +15,13 @@ Hasil:
   server/dataset/runs/finetune/weights/best.pt -> server/models/best.pt
 """
 
+import random
 import shutil
 import sys
 from pathlib import Path
 
 import numpy as np
+from PIL import Image as PILImage
 
 if not hasattr(np, "trapz"):  # NumPy 2.x removed np.trapz
     np.trapz = np.trapezoid
@@ -32,66 +33,109 @@ LABELING = SERVER / "labeling"
 IMAGES_DIR = LABELING / "images"
 LABELS_DIR = LABELING / "labels"
 DATASET = SERVER / "dataset"
-REAL_IMG = DATASET / "images" / "real"
-REAL_LBL = DATASET / "labels" / "real"
-SYNTH_IMG = DATASET / "images"
-SYNTH_LBL = DATASET / "labels"
+TRAIN_IMG = DATASET / "images" / "train"
+TRAIN_LBL = DATASET / "labels" / "train"
+VAL_IMG = DATASET / "images" / "val"
+VAL_LBL = DATASET / "labels" / "val"
+
+
+def _flip_label_hx(path: Path, out: Path):
+    """Tulis label mirror: koordinat x basis jadi 1-x."""
+    lines = []
+    for line in path.read_text().splitlines():
+        parts = line.split()
+        if len(parts) == 5:
+            cls = parts[0]
+            xc = float(parts[1])
+            parts[1] = f"{1.0 - xc:.6f}"
+            lines.append(" ".join([cls] + [f"{float(p):.6f}" for p in parts[1:]]))
+    out.write_text("\n".join(lines) + ("\n" if lines else ""))
 
 
 def copy_real_splits():
-    """Salin foto asli ke train+val untuk augmentasi (flip/mirror)."""
-    imgs = sorted(p for p in IMAGES_DIR.glob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"))
+    """Salin foto asli + label (dan versi mirror) ke train; 1 foto ke val."""
+    imgs = sorted(p for p in IMAGES_DIR.glob("*")
+                  if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"))
     print(f"Foto asli ditemukan: {len(imgs)}")
     if not imgs:
         print("TIDAK ADA foto asli di labeling/images. Berhenti.")
         sys.exit(1)
 
-    REAL_IMG.mkdir(parents=True, exist_ok=True)
-    REAL_LBL.mkdir(parents=True, exist_ok=True)
+    TRAIN_IMG.mkdir(parents=True, exist_ok=True)
+    TRAIN_LBL.mkdir(parents=True, exist_ok=True)
+    VAL_IMG.mkdir(parents=True, exist_ok=True)
+    VAL_LBL.mkdir(parents=True, exist_ok=True)
 
-    # gunakan semua foto untuk train, foto pertama juga untuk val
-    n_train = 0
+    # bersihkan salinan real sebelumnya agar tidak menumpuk bolak-balik
+    for f in TRAIN_IMG.glob("real_*"):
+        f.unlink()
+    for f in TRAIN_LBL.glob("real_*"):
+        f.unlink()
+    for f in VAL_IMG.glob("real_val_*"):
+        f.unlink()
+    for f in VAL_LBL.glob("real_val_*"):
+        f.unlink()
+
+    rng = random.Random(42)
+    labeled = []
     for img in imgs:
-        stem = img.stem
-        lbl = LABELS_DIR / (stem + ".txt")
+        lbl = LABELS_DIR / (img.stem + ".txt")
         if not lbl.exists() or lbl.stat().st_size == 0:
             print(f"  SKIP (belum dilabeli): {img.name}")
             continue
-        shutil.copy(img, REAL_IMG / f"{n_train:04d}{img.suffix.lower()}")
-        shutil.copy(lbl, REAL_LBL / f"{n_train:04d}.txt")
-        # mirror untuk variasi
-        shutil.copy(img, REAL_IMG / f"{n_train:04d}_mirror{img.suffix.lower()}")
-        shutil.copy(lbl, REAL_LBL / f"{n_train:04d}_mirror.txt")
+        labeled.append((img, lbl))
+
+    if not labeled:
+        print("TIDAK ADA foto yang dilabeli. Berhenti.")
+        sys.exit(1)
+
+    # 1 foto dijadikan val, sisanya train + mirror
+    rng.shuffle(labeled)
+
+    n_train = 0
+    for rank, (img, lbl) in enumerate(labeled):
+        ext = img.suffix.lower()
+        if rank == 0:
+            shutil.copy(img, VAL_IMG / f"real_val{ext}")
+            shutil.copy(lbl, VAL_LBL / "real_val.txt")
+            print(f"  VAL  : {img.name}")
+            continue
+
+        shutil.copy(img, TRAIN_IMG / f"real_{n_train:01d}{ext}")
+        shutil.copy(lbl, TRAIN_LBL / f"real_{n_train:01d}.txt")
+
+        # mirror sungguhan: flip horizontal gambar + label x
+        flip = PILImage.open(img).transpose(PILImage.FLIP_LEFT_RIGHT)
+        flip.save(TRAIN_IMG / f"real_{n_train:01d}_mirror{ext}")
+        _flip_label_hx(lbl, TRAIN_LBL / f"real_{n_train:01d}_mirror.txt")
+
+        # oversample real 8x (kopi + mirror sudah 2, tambah 7 duplikat) agar
+        # tidak tenggelam di antara 400 data sintetis
+        for k in range(1, 8):
+            shutil.copy(img, TRAIN_IMG / f"real_{n_train:01d}_dup{k}{ext}")
+            shutil.copy(lbl, TRAIN_LBL / f"real_{n_train:01d}_dup{k}.txt")
+            shutil.copy(TRAIN_IMG / f"real_{n_train:01d}_mirror{ext}",
+                        TRAIN_IMG / f"real_{n_train:01d}_dup{k}_mirror{ext}")
+            _flip_label_hx(lbl, TRAIN_LBL / f"real_{n_train:01d}_dup{k}_mirror.txt")
         n_train += 1
 
-    # val: satu foto pertama (tanpa mirror) sebagai evaluasi
-    VAL_IMG = DATASET / "images" / "val"
-    VAL_LBL = DATASET / "labels" / "val"
-    VAL_IMG.mkdir(parents=True, exist_ok=True)
-    VAL_LBL.mkdir(parents=True, exist_ok=True)
-    if n_train >= 2:
-        for idx in (0, 1):
-            src_img = REAL_IMG / f"{idx:04d}.jpg"
-            if src_img.exists():
-                shutil.copy(src_img, VAL_IMG / f"real_val_{idx}.jpg")
-                shutil.copy(REAL_LBL / f"{idx:04d}.txt", VAL_LBL / f"real_val_{idx}.txt")
+    print(f"Train (asli): {n_train} gambar x8 = {n_train*8}, Val: 1")
     return n_train
 
 
 def make_data_yaml(n_real):
-    """Gabungkan foto asli + sintetis yang sudah ada di dataset/images."""
     data_yaml = DATASET / "data.yaml"
     data_yaml.write_text(
         f"""
 path: {DATASET.as_posix()}
-train: images
+train: images/train
 val: images/val
 nc: 3
 names: [mentah, setengah_matang, matang]
 """.strip()
         + "\n"
     )
-    print(f"data.yaml menunjuk train = seluruh images/ ({n_real} foto asli + sintetis)")
+    print(f"data.yaml -> train: images/train ({n_real} pasang real), val: images/val")
 
 
 def main():

@@ -1,9 +1,7 @@
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-
 import 'package:flutter/painting.dart';
-
 import '../../models/detection.dart';
 
 abstract class TomatoDetector {
@@ -83,7 +81,6 @@ class MockTomatoDetector implements TomatoDetector {
         }
       }
 
-      // Blob yang menempel tepi frame = background (daun memenuhi layar).
       if (minX == 0 || minY == 0 || maxX == gridX - 1 || maxY == gridY - 1) {
         continue;
       }
@@ -91,13 +88,14 @@ class MockTomatoDetector implements TomatoDetector {
       final bw = maxX - minX + 1;
       final bh = maxY - minY + 1;
 
-      // Tolak benda memanjang (daun/batang): bbox hampir persegi.
       final elongation = max(bw, bh) / max(bh, bw);
       if (elongation > 2.6) continue;
 
-      // Tolak blob tidak solid (fragmen/tekstur daun).
       final fill = cells.length / (bw * bh);
       if (fill < 0.35) continue;
+
+      final circularity = _circularity(labels, gridX, gridY, cells);
+      if (circularity < 0.50) continue;
 
       final areaW = bw / gridX;
       final areaH = bh / gridY;
@@ -115,7 +113,7 @@ class MockTomatoDetector implements TomatoDetector {
       detections.add(
         Detection(
           label: dominant,
-          confidence: 0.55 + min(0.4, areaSize * 8 + circularity * 0.1),
+          confidence: 0.55 + min(0.4, areaSize * 8 + circularity * 0.15),
           box: Rect.fromLTRB(
             minX / gridX,
             minY / gridY,
@@ -136,8 +134,6 @@ class MockTomatoDetector implements TomatoDetector {
     return detections.length > 18 ? detections.sublist(0, 18) : detections;
   }
 
-  /// Ukuran "kebulatan" cluster: 4*pi*luas / keliling^2.
-  /// 1.0 = lingkaran sempurna; daun/batang jauh di bawah 0.5.
   double _circularity(
     List<String?> labels,
     int gridX,

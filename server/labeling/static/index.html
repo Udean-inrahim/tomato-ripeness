@@ -105,7 +105,9 @@ function render() {
     ctx.strokeStyle = COLORS[state.curCls];
     ctx.lineWidth = 2;
     ctx.setLineDash([6,4]);
-    ctx.strokeRect(x1*sc*0+cv.width*(0), y1*cv.height, (x2-x1)*cv.width, (y2-y1)*cv.height);
+    ctx.strokeRect(state.dragging.x1 * cv.width, state.dragging.y1 * cv.height,
+                   (state.dragging.x2 - state.dragging.x1) * cv.width,
+                   (state.dragging.y2 - state.dragging.y1) * cv.height);
     ctx.setLineDash([]);
   }
 }
