@@ -15,13 +15,13 @@ class ApiTomatoDetector implements TomatoDetector {
 
   @override
   Future<DetectionResult> detect(Uint8List imageBytes) async {
-    final request = http.MultipartRequest('POST', Uri.parse(endpoint));
-    request.files
-        .add(http.MultipartFile.fromBytes('image', imageBytes));
-
-    final streamed =
-        await _client.send(request).timeout(const Duration(seconds: 30));
-    final response = await http.Response.fromStream(streamed);
+    final response = await _client
+        .post(
+          Uri.parse(endpoint),
+          headers: {'Content-Type': 'application/octet-stream'},
+          body: imageBytes,
+        )
+        .timeout(const Duration(seconds: 30));
 
     if (response.statusCode != 200) {
       throw Exception('Server error (${response.statusCode})');

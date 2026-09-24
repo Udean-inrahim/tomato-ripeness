@@ -1,8 +1,7 @@
 import io
 import os
 
-import numpy as np
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
@@ -33,8 +32,8 @@ def health():
 
 
 @app.post("/detect")
-async def detect(image: UploadFile = File(...)):
-    raw = await image.read()
+async def detect(request: Request):
+    raw = await request.body()
     pil_image = Image.open(io.BytesIO(raw)).convert("RGB")
 
     result = detector.detect(pil_image)
