@@ -66,10 +66,13 @@ class TomatoDetector:
 
     # ---- YOLO ----
     def _detect_yolo(self, pil_image: Image.Image) -> List[Detection]:
-        results = self.model(pil_image, conf=0.25, verbose=False)[0]
+        results = self.model(pil_image, conf=0.3, verbose=False)[0]
         scores = results.boxes.conf.cpu().numpy()
         classes = results.boxes.cls.cpu().numpy().astype(int)
         boxes = results.boxes.xyxyn.cpu().numpy()
+
+        rgb = np.asarray(pil_image).astype(np.float32) / 255.0
+        hsv = _rgb_to_hsv(rgb)
 
         dets: List[Detection] = []
         for box, cls, score in zip(boxes, classes, scores):
@@ -77,6 +80,45 @@ class TomatoDetector:
             if label is None:
                 continue
             x1, y1, x2, y2 = box
+
+            # Ambang per kelas: hijau paling mudah false-positive (daun).
+            if label == "mentah" and float(score) < 0.55:
+                continue
+            if label != "mentah" and float(score) < 0.4:
+                continue
+
+            # Post-filter warna: pastikan area box sesuai warna tomat.
+            px1 = int(x1 * pil_image.width)
+            py1 = int(y1 * pil_image.height)
+            px2 = max(px1 + 1, int(x2 * pil_image.width))
+            py2 = max(py1 + 1, int(y2 * pil_image.height))
+            region = hsv[py1:py2, px1:px2]
+            mean_h = float(np.mean(region[..., 0]))
+            mean_s = float(np.mean(region[..., 1]))
+            mean_v = float(np.mean(region[..., 2]))
+
+            if label == "mentah":
+                # Hijau tomat mentah: hue hijau (60-160), tidak terlalu
+                # gelap/pekat (daun tua) dan tidak pucat (daun muda),
+                # serta ada kilau cahaya.
+                if not (60 <= mean_h <= 160):
+                    continue
+                if mean_v < 0.30 or mean_v > 0.85:
+                    continue
+                if mean_s < 0.15 or mean_s > 0.72:
+                    continue
+            elif label == "setengah_matang":
+                # Oranye/kuning, cukup terang.
+                if not (10 <= mean_h <= 60):
+                    continue
+                if mean_v < 0.40 or mean_s < 0.30:
+                    continue
+            else:  # matang
+                if not (mean_h <= 30 or mean_h >= 330):
+                    continue
+                if mean_s < 0.38 or mean_v < 0.30:
+                    continue
+
             dets.append(
                 Detection(
                     label=label,
@@ -214,18 +256,22 @@ def _rgb_to_hsv(rgb: np.ndarray) -> np.ndarray:
     mx = np.maximum(np.maximum(r, g), b)
     mn = np.minimum(np.minimum(r, g), b)
     delta = mx - mn
+    eps = 1e-10
 
     h = np.zeros_like(r)
-    mask_r = mx == r
-    mask_g = mx == g
-    mask_b = mx == b
-    h[mask_r] = (60 * (((g[mask_r] - b[mask_r]) / delta[mask_r]) % 6)) % 360
-    h[mask_g] = (60 * ((b[mask_g] - r[mask_g]) / delta[mask_g] + 2)) % 360
-    h[mask_b] = (60 * ((r[mask_b] - g[mask_b]) / delta[mask_b] + 4)) % 360
-    h[delta == 0] = 0
+    idx = delta > eps
+    if np.any(idx):
+        np_sub = r[idx] - g[idx]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            mask = mx[idx] == r[idx]
+            h[idx][mask] = (60 * (((g[idx][mask] - b[idx][mask]) / delta[idx][mask]) % 6)) % 360
+            mask = mx[idx] == g[idx]
+            h[idx][mask] = (60 * ((b[idx][mask] - r[idx][mask]) / delta[idx][mask] + 2)) % 360
+            mask = mx[idx] == b[idx]
+            h[idx][mask] = (60 * ((r[idx][mask] - g[idx][mask]) / delta[idx][mask] + 4)) % 360
 
     s = np.zeros_like(r)
-    np.divide(delta, mx, out=s, where=mx != 0)
+    np.divide(delta, mx, out=s, where=mx > eps)
 
     hsv = np.stack([h, s, mx], axis=-1)
     return hsv
