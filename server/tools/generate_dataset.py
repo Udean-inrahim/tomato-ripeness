@@ -49,10 +49,12 @@ def random_leaf_background(size):
     return Image.fromarray(arr)
 
 
-def draw_tomato(img, cx, cy, radius, class_idx):
-    """Gambar tomat bulat dengan gradien radial + kilau."""
+def draw_tomato(img, cx, cy, radius, class_idx, rx=None, ry=None):
+    """Gambar tomat bulat (kadang elips) dengan gradien radial + kilau."""
     d = ImageDraw.Draw(img, "RGBA")
     center, edge = COLORS[class_idx]
+    rx = rx or radius
+    ry = ry or radius
     steps = 10
     for i in range(steps):
         t = i / steps
@@ -61,12 +63,13 @@ def draw_tomato(img, cx, cy, radius, class_idx):
             int(center[c] + (edge[c] - center[c]) * t) for c in range(3)
         )
         d.ellipse(
-            (cx - r, cy - r, cx + r, cy + r),
+            (cx - rx * (1 - t * 0.9), cy - ry * (1 - t * 0.9),
+             cx + rx * (1 - t * 0.9), cy + ry * (1 - t * 0.9)),
             fill=(*color, 255),
         )
     # kilau kecil
     shine = int(radius * 0.32)
-    sx, sy = cx - radius * 0.35, cy - radius * 0.35
+    sx, sy = cx - rx * 0.35, cy - ry * 0.35
     d.ellipse(
         (sx - shine, sy - shine, sx + shine, sy + shine),
         fill=(255, 255, 255, 70),
@@ -74,7 +77,7 @@ def draw_tomato(img, cx, cy, radius, class_idx):
     return img
 
 
-def generate_one(rng, size):
+def generate_one(rng, size, allow_negative=True):
     img = random_leaf_background(size)
     d_extra = ImageDraw.Draw(img)
     # ranting/garis hijau
@@ -86,19 +89,42 @@ def generate_one(rng, size):
             width=rng.integers(2, 6),
         )
 
+    # distractor: bentuk daun memanjang (bukan tomat)
+    for _ in range(rng.integers(1, 5)):
+        cx = rng.uniform(0, size)
+        cy = rng.uniform(0, size)
+        rx = rng.uniform(8, 18)
+        ry = rng.uniform(28, 70)
+        angle = rng.uniform(0, 180)
+        if rng.random() < 0.5:
+            rx, ry = ry, rx
+        if angle > 45 and angle < 135:
+            rx, ry = ry, rx
+        d_extra.ellipse(
+            (cx - rx, cy - ry, cx + rx, cy + ry),
+            fill=(rng.integers(55, 125), rng.integers(130, 180),
+                  rng.integers(40, 70)),
+        )
+
+    # 20% gambar tanpa tomat sama sekali (negatif murni)
+    if allow_negative and rng.random() < 0.20:
+        return img, []
+
     n_tomatoes = rng.integers(1, 5)
     boxes = []
     for _ in range(n_tomatoes):
         radius = rng.uniform(16, 62)
-        cx = rng.uniform(radius + 8, size - radius - 8)
+        stretch = rng.uniform(0.8, 1.25)
+        cx = rng.uniform(radius * stretch + 8, size - radius * stretch - 8)
         cy = rng.uniform(radius + 8, size - radius - 8)
         class_idx = rng.integers(0, 3)
-        draw_tomato(img, cx, cy, radius, class_idx)
+        draw_tomato(img, cx, cy, radius, class_idx,
+                    rx=radius * stretch, ry=radius * (1 / stretch))
 
         x_center = cx / size
         y_center = cy / size
-        w = (radius * 2) / size
-        h = (radius * 2) / size
+        w = (radius * stretch * 1.9) / size
+        h = (radius * (1 / stretch) * 1.9) / size
         boxes.append((class_idx, x_center, y_center, w, h))
     return img, boxes
 
