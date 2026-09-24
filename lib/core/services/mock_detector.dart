@@ -39,8 +39,8 @@ class MockTomatoDetector implements TomatoDetector {
   }
 
   List<Detection> _findTomatoes(Uint8List pixels, int width, int height) {
-    const gridX = 40;
-    const gridY = 40;
+    const gridX = 48;
+    const gridY = 48;
     final labels = List<String?>.filled(gridX * gridY, null);
 
     for (var gy = 0; gy < gridY; gy++) {
@@ -60,7 +60,7 @@ class MockTomatoDetector implements TomatoDetector {
       if (visited[i] || labels[i] == null) continue;
       final cells = _floodFill(labels, visited, gridX, gridY, i % gridX, i ~/ gridX);
 
-      if (cells.length < 4) continue;
+      if (cells.length < 6) continue;
 
       var minX = gridX, minY = gridY, maxX = 0, maxY = 0;
       var countRipe = 0;
@@ -83,9 +83,17 @@ class MockTomatoDetector implements TomatoDetector {
         }
       }
 
+      // Bentuk harus bulat (mendekati lingkaran), bukan daun/batang memanjang.
+      final circularity =
+          _circularity(labels, gridX, gridY, cells);
+      if (circularity < 0.55) continue;
+
       final areaW = (maxX - minX + 1) / gridX;
       final areaH = (maxY - minY + 1) / gridY;
-      if (areaW * areaH < 0.0035) continue;
+      final covered = areaW * areaH;
+      if (covered < 0.002) continue;
+      // Gugus besar (daun/background memenuhi frame) bukan tomat.
+      if (covered > 0.18) continue;
 
       final dominant = countRipe >= countHalf && countRipe >= countRaw
           ? Ripeness.matang
@@ -93,10 +101,11 @@ class MockTomatoDetector implements TomatoDetector {
               ? Ripeness.setengahMatang
               : Ripeness.mentah;
 
+      final areaSize = covered;
       detections.add(
         Detection(
           label: dominant,
-          confidence: 0.55 + min(0.4, cells.length / (gridX * gridY) * 6),
+          confidence: 0.55 + min(0.4, areaSize * 8 + circularity * 0.1),
           box: Rect.fromLTRB(
             minX / gridX,
             minY / gridY,
@@ -114,9 +123,38 @@ class MockTomatoDetector implements TomatoDetector {
       return ax.compareTo(bx);
     });
 
-    return detections.length > 18
-        ? detections.sublist(0, 18)
-        : detections;
+    return detections.length > 18 ? detections.sublist(0, 18) : detections;
+  }
+
+  /// Ukuran "kebulatan" cluster: 4*pi*luas / keliling^2.
+  /// 1.0 = lingkaran sempurna; daun/batang jauh di bawah 0.5.
+  double _circularity(
+    List<String?> labels,
+    int gridX,
+    int gridY,
+    List<int> cells,
+  ) {
+    final inCluster = List<bool>.filled(gridX * gridY, false);
+    for (final cell in cells) {
+      inCluster[cell] = true;
+    }
+
+    var area = cells.length;
+    var perimeter = 0;
+    for (final cell in cells) {
+      final cx = cell % gridX;
+      final cy = cell ~/ gridX;
+      for (final (nx, ny) in [(cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)]) {
+        if (nx < 0 || ny < 0 || nx >= gridX || ny >= gridY) {
+          perimeter++;
+          continue;
+        }
+        if (!inCluster[ny * gridX + nx]) perimeter++;
+      }
+    }
+
+    if (perimeter == 0) return 0;
+    return 4 * pi * area / (perimeter * perimeter);
   }
 
   List<int> _floodFill(
