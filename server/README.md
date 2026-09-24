@@ -27,8 +27,9 @@ Server siap di `http://localhost:8000`.
 
 ### Model
 
-1. Siapkan file model YOLOv8 hasil training (format `.pt`, misal `best.pt`) dan letakkan di `server/models/`.
-2. Tanpa file model, server otomatis memakai **fallback segmentasi warna** (sama dengan demo di Flutter) supaya alur integrasi tetap bisa diuji.
+Model YOLOv8 siap pakai disimpan di `server/models/best.pt` (6.2MB, YOLOv8n, 3 kelas: `mentah`, `setengah_matang`, `matang`). Model saat ini dilatih pada dataset sintetis (lingkaran tomat di atas background daun) — menggantikan fallback warna.
+
+Tanpa file model, server otomatis memakai **fallback segmentasi warna** supaya alur integrasi selalu bisa diuji.
 
 Ganti model:
 
@@ -72,3 +73,12 @@ model.train(data="dataset.yaml", epochs=100, imgsz=640)
 ```
 
 3. Ambil `runs/detect/train/weights/best.pt` ke `server/models/`.
+
+### Latihan dari dataset sintetis (termasuk di repo)
+
+```bash
+cd server
+.venv\Scripts\python.exe tools\generate_dataset.py   # buat dataset sintetis
+.venv\Scripts\python.exe tools\train.py 40 320       # train YOLOv8n (CPU ~37 menit)
+Copy-Item dataset\runs\yolov8n\weights\best.pt models\best.pt
+```

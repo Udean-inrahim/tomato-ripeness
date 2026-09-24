@@ -100,10 +100,10 @@ class TomatoDetector:
         h2 = h * 2
         labels = np.zeros((256, 256), dtype=np.int8)
 
-        valid = (v >= 0.22) & (v <= 0.92) & (s >= 0.28)
-        ripe = valid & ((h2 <= 36) | (h2 >= 690))
-        half = valid & (h2 >= 36) & (h2 <= 110) & (s >= 0.35)
-        raw = valid & (h2 >= 140) & (h2 <= 310) & (s >= 0.30)
+        valid = (v >= 0.15) & (v <= 0.95) & (s >= 0.20)
+        ripe = valid & ((h2 <= 44) | (h2 >= 680))
+        half = valid & (h2 >= 36) & (h2 <= 120) & (s >= 0.30)
+        raw = valid & (h2 >= 130) & (h2 <= 320) & (s >= 0.25)
         labels[ripe] = _MATANG
         labels[half] = _SETENGAH
         labels[raw] = _MENTAH
@@ -115,23 +115,32 @@ class TomatoDetector:
                 if visited[y, x] or labels[y, x] == 0:
                     continue
                 cells = _flood_fill(labels, visited, x, y)
-                if len(cells) < 6:
+                if len(cells) < 3:
                     continue
 
                 ys, xs = zip(*cells)
                 min_x, max_x = min(xs), max(xs)
                 min_y, max_y = min(ys), max(ys)
 
-                circularity = _circularity(labels, cells, min_x, min_y, max_x, max_y)
-                if circularity < 0.55:
+                bw = max_x - min_x + 1
+                bh = max_y - min_y + 1
+
+                # Tolak benda memanjang (daun/batang): bbox hampir persegi.
+                elongation = max(bw, bh) / max(bh, bw)
+                if elongation > 3.0:
                     continue
 
-                area_w = (max_x - min_x + 1) / 256
-                area_h = (max_y - min_y + 1) / 256
-                covered = area_w * area_h
-                if covered < 0.002:
+                # Tolak blob tidak solid (fragmen/tekstur berantakan).
+                fill = len(cells) / (bw * bh)
+                if fill < 0.30:
                     continue
-                if covered > 0.18:
+
+                area_w = bw / 256
+                area_h = bh / 256
+                covered = area_w * area_h
+                if covered < 0.0008:
+                    continue
+                if covered > 0.5:
                     continue
 
                 cell_labels = labels[ys, xs]
@@ -144,7 +153,7 @@ class TomatoDetector:
                 else:
                     label = "matang"
 
-                confidence = round(min(0.95, 0.55 + covered * 8 + circularity * 0.1), 4)
+                confidence = round(min(0.95, 0.5 + fill * 0.3 + covered * 3), 4)
                 dets.append(
                     Detection(
                         label=label,

@@ -83,17 +83,27 @@ class MockTomatoDetector implements TomatoDetector {
         }
       }
 
-      // Bentuk harus bulat (mendekati lingkaran), bukan daun/batang memanjang.
-      final circularity =
-          _circularity(labels, gridX, gridY, cells);
-      if (circularity < 0.55) continue;
+      // Blob yang menempel tepi frame = background (daun memenuhi layar).
+      if (minX == 0 || minY == 0 || maxX == gridX - 1 || maxY == gridY - 1) {
+        continue;
+      }
 
-      final areaW = (maxX - minX + 1) / gridX;
-      final areaH = (maxY - minY + 1) / gridY;
+      final bw = maxX - minX + 1;
+      final bh = maxY - minY + 1;
+
+      // Tolak benda memanjang (daun/batang): bbox hampir persegi.
+      final elongation = max(bw, bh) / max(bh, bw);
+      if (elongation > 2.6) continue;
+
+      // Tolak blob tidak solid (fragmen/tekstur daun).
+      final fill = cells.length / (bw * bh);
+      if (fill < 0.35) continue;
+
+      final areaW = bw / gridX;
+      final areaH = bh / gridY;
       final covered = areaW * areaH;
-      if (covered < 0.002) continue;
-      // Gugus besar (daun/background memenuhi frame) bukan tomat.
-      if (covered > 0.18) continue;
+      if (covered < 0.0015) continue;
+      if (covered > 0.5) continue;
 
       final dominant = countRipe >= countHalf && countRipe >= countRaw
           ? Ripeness.matang
@@ -184,15 +194,15 @@ class MockTomatoDetector implements TomatoDetector {
   String? _classify(int r, int g, int b) {
     final (h, s, v) = _rgbToHsv(r, g, b);
 
-    if (v < 0.22 || v > 0.92 || s < 0.28) return null;
+    if (v < 0.15 || v > 0.95 || s < 0.20) return null;
 
-    if (h <= 18 || h >= 345) {
+    if (h <= 22 || h >= 340) {
       return Ripeness.matang;
     }
-    if (h >= 18 && h <= 55 && s >= 0.35) {
+    if (h >= 18 && h <= 60 && s >= 0.30) {
       return Ripeness.setengahMatang;
     }
-    if (h >= 70 && h <= 155 && s >= 0.30) {
+    if (h >= 65 && h <= 160 && s >= 0.25) {
       return Ripeness.mentah;
     }
     return null;
