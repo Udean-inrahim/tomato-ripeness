@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -16,7 +16,7 @@ class DetectionScreen extends StatefulWidget {
 
 class _DetectionScreenState extends State<DetectionScreen> {
   final ImagePicker _picker = ImagePicker();
-  String? _imagePath;
+  Uint8List? _imageBytes;
   bool _analyzing = false;
 
   Future<void> _pick(ImageSource source) async {
@@ -27,7 +27,8 @@ class _DetectionScreenState extends State<DetectionScreen> {
         imageQuality: 92,
       );
       if (file == null) return;
-      setState(() => _imagePath = file.path);
+      final bytes = await file.readAsBytes();
+      setState(() => _imageBytes = bytes);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -69,13 +70,13 @@ class _DetectionScreenState extends State<DetectionScreen> {
   }
 
   Future<void> _analyze() async {
-    final path = _imagePath;
-    if (path == null) return;
+    final bytes = _imageBytes;
+    if (bytes == null) return;
 
     setState(() => _analyzing = true);
     final detector = context.read<TomatoDetector>();
     try {
-      final result = await detector.detect(path);
+      final result = await detector.detect(bytes);
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => ResultScreen(result: result)),
@@ -101,19 +102,19 @@ class _DetectionScreenState extends State<DetectionScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: _imagePath == null
+                child: _imageBytes == null
                     ? _EmptyPlaceholder(onPick: _showSourceSheet)
                     : ClipRRect(
                         borderRadius: BorderRadius.circular(16),
-                        child: Image.file(
-                          File(_imagePath!),
+                        child: Image.memory(
+                          _imageBytes!,
                           fit: BoxFit.contain,
                           width: double.infinity,
                         ),
                       ),
               ),
               const SizedBox(height: 16),
-              if (_imagePath != null)
+              if (_imageBytes != null)
                 OutlinedButton.icon(
                   onPressed: _showSourceSheet,
                   icon: const Icon(Icons.swap_horiz),
@@ -121,7 +122,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
                 ),
               const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: _imagePath == null || _analyzing
+                onPressed: _imageBytes == null || _analyzing
                     ? null
                     : _analyze,
                 icon: _analyzing

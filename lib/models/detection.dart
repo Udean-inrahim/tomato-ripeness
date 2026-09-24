@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 class Ripeness {
@@ -60,14 +62,14 @@ class Detection {
 }
 
 class DetectionResult {
-  final String imagePath;
+  final Uint8List imageBytes;
   final int imageWidth;
   final int imageHeight;
   final List<Detection> detections;
   final DateTime detectedAt;
 
   const DetectionResult({
-    required this.imagePath,
+    required this.imageBytes,
     required this.imageWidth,
     required this.imageHeight,
     required this.detections,

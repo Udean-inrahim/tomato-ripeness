@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -7,7 +8,7 @@ import 'package:tomato_ripeness/models/detection.dart';
 void main() {
   test('counts by category', () {
     final result = DetectionResult(
-      imagePath: 'x.jpg',
+      imageBytes: Uint8List(0),
       imageWidth: 100,
       imageHeight: 100,
       detections: const [

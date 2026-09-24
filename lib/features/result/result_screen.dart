@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -11,11 +13,36 @@ class ResultScreen extends StatelessWidget {
   const ResultScreen({super.key, required this.result});
 
   Future<void> _share() async {
+    final bytes = result.imageBytes;
+    final mime = _mimeFromBytes(bytes);
     await Share.shareXFiles(
-      [XFile(result.imagePath)],
+      [
+        XFile.fromData(
+          bytes,
+          mimeType: mime,
+          name: 'deteksi-tomat.${_extFromMime(mime)}',
+        ),
+      ],
       text: result.summaryText(),
     );
   }
+
+  String _mimeFromBytes(Uint8List bytes) {
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xFF &&
+        bytes[1] == 0xD8 &&
+        bytes[2] == 0xFF) {
+      return 'image/jpeg';
+    }
+    if (bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        String.fromCharCodes(bytes.sublist(1, 4)) == 'PNG') {
+      return 'image/png';
+    }
+    return 'image/jpeg';
+  }
+
+  String _extFromMime(String mime) => mime == 'image/png' ? 'png' : 'jpg';
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +80,7 @@ class ResultScreen extends StatelessWidget {
               )
             else ...[
               DetectionOverlay(
-                imagePath: result.imagePath,
+                imageBytes: result.imageBytes,
                 detections: result.detections,
                 imageWidth: result.imageWidth,
                 imageHeight: result.imageHeight,

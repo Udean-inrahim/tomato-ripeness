@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -69,14 +69,14 @@ class DetectionPainter extends CustomPainter {
 }
 
 class DetectionOverlay extends StatelessWidget {
-  final String imagePath;
+  final Uint8List imageBytes;
   final List<Detection> detections;
   final int imageWidth;
   final int imageHeight;
 
   const DetectionOverlay({
     super.key,
-    required this.imagePath,
+    required this.imageBytes,
     required this.detections,
     required this.imageWidth,
     required this.imageHeight,
@@ -93,8 +93,8 @@ class DetectionOverlay extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Image.file(
-              File(imagePath),
+            Image.memory(
+              imageBytes,
               fit: BoxFit.fill,
               errorBuilder: (_, __, ___) => Container(
                 color: Colors.black12,

@@ -1,49 +1,108 @@
-import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 
 import '../../models/detection.dart';
 
 abstract class TomatoDetector {
-  Future<DetectionResult> detect(String imagePath);
+  Future<DetectionResult> detect(Uint8List imageBytes);
 }
 
 class MockTomatoDetector implements TomatoDetector {
-  final Random _random = Random();
-
   @override
-  Future<DetectionResult> detect(String imagePath) async {
-    await Future.delayed(const Duration(milliseconds: 1500));
+  Future<DetectionResult> detect(Uint8List imageBytes) async {
+    await Future.delayed(const Duration(milliseconds: 1200));
 
-    final bytes = await File(imagePath).readAsBytes();
-    final image = await decodeImageFromList(bytes);
+    final codec = await ui.instantiateImageCodec(
+      imageBytes,
+      targetWidth: 256,
+    );
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
     final width = image.width;
     final height = image.height;
+    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
     image.dispose();
+    final pixels = data!.buffer.asUint8List();
 
-    final count = 4 + _random.nextInt(9);
+    final detections = _findTomatoes(pixels, width, height);
+
+    return DetectionResult(
+      imageBytes: imageBytes,
+      imageWidth: width,
+      imageHeight: height,
+      detections: detections,
+      detectedAt: DateTime.now(),
+    );
+  }
+
+  List<Detection> _findTomatoes(Uint8List pixels, int width, int height) {
+    const gridX = 40;
+    const gridY = 40;
+    final labels = List<String?>.filled(gridX * gridY, null);
+
+    for (var gy = 0; gy < gridY; gy++) {
+      for (var gx = 0; gx < gridX; gx++) {
+        final px = ((gx + 0.5) * width / gridX).floor().clamp(0, width - 1);
+        final py = ((gy + 0.5) * height / gridY).floor().clamp(0, height - 1);
+        final i = (py * width + px) * 4;
+        labels[gy * gridX + gx] =
+            _classify(pixels[i], pixels[i + 1], pixels[i + 2]);
+      }
+    }
+
+    final visited = List<bool>.filled(gridX * gridY, false);
     final detections = <Detection>[];
-    final used = <Rect>[];
 
-    var attempts = 0;
-    while (detections.length < count && attempts < count * 30) {
-      attempts++;
-      final w = 0.12 + _random.nextDouble() * 0.18;
-      final h = w * (1.1 + _random.nextDouble() * 0.4);
-      final left = _random.nextDouble() * (1.0 - w);
-      final top = _random.nextDouble() * (1.0 - h);
-      final rect = Rect.fromLTWH(left, top, w, h);
+    for (var i = 0; i < visited.length; i++) {
+      if (visited[i] || labels[i] == null) continue;
+      final cells = _floodFill(labels, visited, gridX, gridY, i % gridX, i ~/ gridX);
 
-      final overlaps = used.any((r) => _overlap(r, rect) > 0.35);
-      if (overlaps) continue;
+      if (cells.length < 4) continue;
 
-      used.add(rect);
+      var minX = gridX, minY = gridY, maxX = 0, maxY = 0;
+      var countRipe = 0;
+      var countHalf = 0;
+      var countRaw = 0;
+      for (final cell in cells) {
+        final cx = cell % gridX;
+        final cy = cell ~/ gridX;
+        minX = min(minX, cx);
+        minY = min(minY, cy);
+        maxX = max(maxX, cx);
+        maxY = max(maxY, cy);
+        switch (labels[cell]) {
+          case Ripeness.matang:
+            countRipe++;
+          case Ripeness.setengahMatang:
+            countHalf++;
+          case Ripeness.mentah:
+            countRaw++;
+        }
+      }
+
+      final areaW = (maxX - minX + 1) / gridX;
+      final areaH = (maxY - minY + 1) / gridY;
+      if (areaW * areaH < 0.0035) continue;
+
+      final dominant = countRipe >= countHalf && countRipe >= countRaw
+          ? Ripeness.matang
+          : countHalf >= countRaw
+              ? Ripeness.setengahMatang
+              : Ripeness.mentah;
+
       detections.add(
         Detection(
-          label: Ripeness.all[_random.nextInt(Ripeness.all.length)],
-          confidence: 0.62 + _random.nextDouble() * 0.36,
-          box: rect,
+          label: dominant,
+          confidence: 0.55 + min(0.4, cells.length / (gridX * gridY) * 6),
+          box: Rect.fromLTRB(
+            minX / gridX,
+            minY / gridY,
+            minX / gridX + areaW,
+            minY / gridY + areaH,
+          ),
         ),
       );
     }
@@ -55,19 +114,74 @@ class MockTomatoDetector implements TomatoDetector {
       return ax.compareTo(bx);
     });
 
-    return DetectionResult(
-      imagePath: imagePath,
-      imageWidth: width,
-      imageHeight: height,
-      detections: detections,
-      detectedAt: DateTime.now(),
-    );
+    return detections.length > 18
+        ? detections.sublist(0, 18)
+        : detections;
   }
 
-  double _overlap(Rect a, Rect b) {
-    final intersection = a.intersect(b);
-    if (intersection.isEmpty) return 0;
-    return intersection.width * intersection.height /
-        min(a.width * a.height, b.width * b.height);
+  List<int> _floodFill(
+    List<String?> labels, List<bool> visited, int gridX, int gridY,
+    int startX, int startY,
+  ) {
+    final startLabel = labels[startY * gridX + startX]!;
+    final result = <int>[];
+    final stack = <(int, int)>[(startX, startY)];
+
+    while (stack.isNotEmpty) {
+      final (x, y) = stack.removeLast();
+      if (x < 0 || y < 0 || x >= gridX || y >= gridY) continue;
+      final idx = y * gridX + x;
+      if (visited[idx] || labels[idx] != startLabel) continue;
+      visited[idx] = true;
+      result.add(idx);
+      stack.add((x + 1, y));
+      stack.add((x - 1, y));
+      stack.add((x, y + 1));
+      stack.add((x, y - 1));
+    }
+
+    return result;
+  }
+
+  String? _classify(int r, int g, int b) {
+    final (h, s, v) = _rgbToHsv(r, g, b);
+
+    if (v < 0.22 || v > 0.92 || s < 0.28) return null;
+
+    if (h <= 18 || h >= 345) {
+      return Ripeness.matang;
+    }
+    if (h >= 18 && h <= 55 && s >= 0.35) {
+      return Ripeness.setengahMatang;
+    }
+    if (h >= 70 && h <= 155 && s >= 0.30) {
+      return Ripeness.mentah;
+    }
+    return null;
+  }
+
+  (double, double, double) _rgbToHsv(int rawR, int rawG, int rawB) {
+    final r = rawR / 255.0;
+    final g = rawG / 255.0;
+    final b = rawB / 255.0;
+
+    final maxC = max(r, max(g, b));
+    final minC = min(r, min(g, b));
+    final delta = maxC - minC;
+
+    double h;
+    if (delta == 0) {
+      h = 0;
+    } else if (maxC == r) {
+      h = 60 * (((g - b) / delta) % 6);
+    } else if (maxC == g) {
+      h = 60 * ((b - r) / delta + 2);
+    } else {
+      h = 60 * ((r - g) / delta + 4);
+    }
+    if (h < 0) h += 360;
+
+    final s = maxC == 0 ? 0.0 : delta / maxC;
+    return (h, s, maxC);
   }
 }
