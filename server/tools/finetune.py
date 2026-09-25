@@ -80,7 +80,7 @@ def copy_real_splits():
     labeled = []
     for img in imgs:
         lbl = LABELS_DIR / (img.stem + ".txt")
-        if not lbl.exists() or lbl.stat().st_size == 0:
+        if not lbl.exists():
             print(f"  SKIP (belum dilabeli): {img.name}")
             continue
         labeled.append((img, lbl))
@@ -89,17 +89,11 @@ def copy_real_splits():
         print("TIDAK ADA foto yang dilabeli. Berhenti.")
         sys.exit(1)
 
-    # 1 foto dijadikan val, sisanya train + mirror
-    rng.shuffle(labeled)
-
+    # Semua foto asli masuk train (val tetap sintetis) agar tiap foto
+    # benar-benar dipelajari model.
     n_train = 0
-    for rank, (img, lbl) in enumerate(labeled):
+    for img, lbl in labeled:
         ext = img.suffix.lower()
-        if rank == 0:
-            shutil.copy(img, VAL_IMG / f"real_val{ext}")
-            shutil.copy(lbl, VAL_LBL / "real_val.txt")
-            print(f"  VAL  : {img.name}")
-            continue
 
         shutil.copy(img, TRAIN_IMG / f"real_{n_train:01d}{ext}")
         shutil.copy(lbl, TRAIN_LBL / f"real_{n_train:01d}.txt")
@@ -110,7 +104,7 @@ def copy_real_splits():
         _flip_label_hx(lbl, TRAIN_LBL / f"real_{n_train:01d}_mirror.txt")
 
         # oversample real 8x (kopi + mirror sudah 2, tambah 7 duplikat) agar
-        # tidak tenggelam di antara 400 data sintetis
+        # tidak tenggelam di antara data sintetis
         for k in range(1, 8):
             shutil.copy(img, TRAIN_IMG / f"real_{n_train:01d}_dup{k}{ext}")
             shutil.copy(lbl, TRAIN_LBL / f"real_{n_train:01d}_dup{k}.txt")
@@ -119,7 +113,7 @@ def copy_real_splits():
             _flip_label_hx(lbl, TRAIN_LBL / f"real_{n_train:01d}_dup{k}_mirror.txt")
         n_train += 1
 
-    print(f"Train (asli): {n_train} gambar x8 = {n_train*8}, Val: 1")
+    print(f"Train (asli): {n_train} foto x8 = {n_train*8}, Val: sintetis")
     return n_train
 
 
@@ -145,10 +139,12 @@ def main():
     n_real = copy_real_splits()
     make_data_yaml(n_real)
 
-    # fine-tune dari model sintetis terbaik (cepat) atau pretrained COCO
-    start = DATASET / "runs" / "yolov8n" / "weights" / "best.pt"
+    # gunakan model terbaru (fine-tune sebelumnya) bila tersedia
+    start = DATASET / "runs" / "finetune" / "weights" / "best.pt"
     if not start.exists():
         start = SERVER / "models" / "best.pt"
+    if not start.exists():
+        start = DATASET / "runs" / "yolov8n" / "weights" / "best.pt"
     weight = str(start) if start.exists() else "yolov8n.pt"
     print(f"Start weight: {weight}")
 
