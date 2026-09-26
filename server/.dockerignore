@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+dataset/
+test_input/
+labeling/images/
+*.log
