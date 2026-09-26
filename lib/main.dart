@@ -26,7 +26,12 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
-        Provider<TomatoDetector>.value(value: detector),
+        Provider<TomatoDetector>(
+          create: (_) => detector,
+          dispose: (_, value) {
+            if (value is ApiTomatoDetector) value.close();
+          },
+        ),
       ],
       child: TomatoApp(startOnboarding: !onboardingDone),
     ),

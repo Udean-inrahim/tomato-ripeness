@@ -76,4 +76,4 @@ Format respons API yang diharapkan:
 ## Integrasi model YOLOv8
 
 - **On-device:** `tflite_flutter` + `yolov8n.tflite` (Android saja). Ganti `TomatoDetector` dengan implementasi TFLite, map output ke `Detection`.
-- **Server-side:** Latih YOLOv8 di Google Colab, expose via FastAPI/Flask pada `/detect` (terima multipart `image`, balas JSON di atas), lalu aktifkan mode API seperti contoh di atas.
+- **Server-side:** Jalankan FastAPI pada `/detect` (menerima raw body `application/octet-stream`, balas JSON di atas), lalu aktifkan mode API seperti contoh di atas. Batas ukuran gambar 10 MB.

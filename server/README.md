@@ -1,6 +1,6 @@
 # Server Deteksi Tomat — FastAPI + YOLOv8
 
-Backend inference untuk aplikasi Flutter `tomato_ripeness`. Menerima gambar via `multipart/form-data`, menjalankan model **YOLOv8** (ultralytics), lalu mengembalikan bounding box + label dalam format JSON yang sudah disepakati.
+Backend inference untuk aplikasi Flutter `tomato_ripeness`. Menerima gambar sebagai raw body `application/octet-stream`, menjalankan model **YOLOv8** (ultralytics), lalu mengembalikan bounding box + label dalam format JSON yang sudah disepakati.
 
 ## Instalasi
 
@@ -44,8 +44,9 @@ Label yang dikenali: `mentah`, `setengah_matang`, `matang`.
 
 `POST /detect`
 
-- `multipart/form-data`, field `image` = file gambar (jpeg/png).
-- `GET /health` — cek status server.
+- Body request: raw bytes dengan `Content-Type: application/octet-stream` (maksimal 10 MB).
+- Gambar otomatis dirotasi mengikuti EXIF orientation.
+- `GET /health` — cek status server, model, dan batas ukuran upload.
 
 ### Contoh respons
 
@@ -82,3 +83,13 @@ cd server
 .venv\Scripts\python.exe tools\train.py 40 320       # train YOLOv8n (CPU ~37 menit)
 Copy-Item dataset\runs\yolov8n\weights\best.pt models\best.pt
 ```
+
+Untuk foto asli, letakkan foto dan label YOLO di `labeling/images` dan
+`labeling/labels`, lalu jalankan:
+
+```bash
+.venv\Scripts\python.exe tools\finetune.py 24 320
+Copy-Item dataset\runs\finetune\weights\best.pt models\best.pt
+```
+
+Label kosong pada foto non-tomat diperlakukan sebagai negative sample.

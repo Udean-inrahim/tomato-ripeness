@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 from PIL import Image
@@ -152,16 +152,13 @@ class TomatoDetector:
                 mg = float(np.mean(rgb[cell_idx][..., 1])) * 255
                 mb = float(np.mean(rgb[cell_idx][..., 2])) * 255
 
-                if mr - mg >= 25 and mr - mb >= 40:
-                    pass
-                elif mr - mg >= 18 and mr - mb >= 35:
-                    pass
-                else:
+                ripe_dominant = mr - mg >= 25 and mr - mb >= 40
+                half_dominant = mr - mg >= 18 and mr - mb >= 35
+                if not (ripe_dominant or half_dominant):
                     continue
 
-                mh = float(np.mean(h[cell_idx]))
-                dominated_by = np.mean((h[cell_idx] <= 25) | (h[cell_idx] >= 335))
-                label = "matang" if dominated_by >= 0.5 else "setengah_matang"
+                ripe_cells = np.mean((h[cell_idx] <= 25) | (h[cell_idx] >= 335))
+                label = "matang" if ripe_dominant or ripe_cells >= 0.5 else "setengah_matang"
 
                 covered = (bw / 256) * (bh / 256)
                 if covered < 0.001 or covered > 0.5:
