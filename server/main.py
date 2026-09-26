@@ -29,10 +29,11 @@ _detect_lock = asyncio.Lock()
 @app.get("/health")
 def health():
     return {
-        "status": "ok",
+        "status": "ok" if detector.model is not None else "degraded",
         "detector": detector.mode,
         "model": detector.model_name,
         "model_loaded": detector.model is not None,
+        "load_error": detector.load_error,
         "max_image_bytes": MAX_IMAGE_BYTES,
     }
 

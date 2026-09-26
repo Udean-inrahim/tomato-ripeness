@@ -30,6 +30,7 @@ class TomatoDetector:
         self.model = None
         self.model_name = "none"
         self.mode = "fallback_warna"
+        self.load_error = None
 
     def load(self):
         if os.path.exists(self.model_path):
@@ -39,12 +40,14 @@ class TomatoDetector:
                 self.model = YOLO(self.model_path)
                 self.model_name = os.path.basename(self.model_path)
                 self.mode = "yolo"
-            except Exception as exc:
+            except Exception as exc:  # pragma: no cover
+                self.load_error = str(exc)
                 print(f"Gagal memuat model YOLO ({exc}); memakai fallback warna.")
                 self.model = None
                 self.model_name = "none"
                 self.mode = "fallback_warna"
         else:
+            self.load_error = f"Model tidak ditemukan: {self.model_path}"
             print(f"Model {self.model_path} belum ada; memakai fallback warna.")
 
     def detect(self, pil_image: Image.Image):
