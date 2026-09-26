@@ -1,0 +1,7 @@
+.git/
+**/.venv/
+**/__pycache__/
+server/dataset/
+server/test_input/
+server/labeling/images/
+**/*.log
