@@ -67,7 +67,14 @@ class TomatoDetector:
 
     # ---- YOLO ----
     def _detect_yolo(self, pil_image: Image.Image) -> List[Detection]:
-        results = self.model(pil_image, conf=0.1, verbose=False)[0]
+        results = self.model(
+            pil_image,
+            imgsz=320,
+            conf=0.15,
+            iou=0.5,
+            max_det=100,
+            verbose=False,
+        )[0]
         scores = results.boxes.conf.cpu().numpy()
         classes = results.boxes.cls.cpu().numpy().astype(int)
         boxes = results.boxes.xyxyn.cpu().numpy()
@@ -89,11 +96,11 @@ class TomatoDetector:
             if box_area < 0.0001:
                 continue
 
-            # Class-specific confidence threshold:
-            #   mentah    : 0.45 (daun rentan FP)
+            # class-specific confidence threshold:
+            #   mentah    : 0.25 (daun tetap aman pada data negative)
             #   setengah  : 0.20 (jarang, accept lower conf)
-            #   matang    : 0.30 (butuh cukup confident)
-            class_conf = {0: 0.45, 1: 0.20, 2: 0.30}
+            #   matang    : 0.25 (butuh cukup confident)
+            class_conf = {0: 0.25, 1: 0.20, 2: 0.25}
             if float(score) < class_conf[int(cls)]:
                 continue
 
