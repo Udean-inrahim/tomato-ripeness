@@ -1,13 +1,15 @@
 import argparse
+import sys
 from pathlib import Path
 
 from PIL import Image
-from ultralytics import YOLO
 
 ROOT = Path(__file__).resolve().parent.parent
 IMAGE_DIR = ROOT / "labeling" / "images"
 LABEL_DIR = ROOT / "labeling" / "labels"
 NAMES = ["mentah", "setengah_matang", "matang"]
+sys.path.insert(0, str(ROOT))
+from detector import TomatoDetector
 
 
 def read_labels(path: Path):
@@ -47,24 +49,22 @@ def iou(a, b):
     return inter / union if union else 0.0
 
 
-def evaluate(model, image, ground_truth, imgsz, conf, iou_threshold=0.5):
-    result = model.predict(
-        image,
-        imgsz=imgsz,
-        conf=conf,
-        iou=0.5,
-        device="cpu",
-        verbose=False,
-    )[0]
+def evaluate(detector, image, ground_truth, iou_threshold=0.5):
+    result = detector.detect(image)
     predictions = []
-    if result.boxes is not None:
-        boxes = result.boxes.xyxyn.cpu().numpy()
-        scores = result.boxes.conf.cpu().numpy()
-        classes = result.boxes.cls.cpu().numpy().astype(int)
-        for box, score, cls in zip(boxes, scores, classes):
-            predictions.append(
-                {"cls": int(cls), "score": float(score), "box": box.tolist()}
-            )
+    for detection in result["detections"]:
+        predictions.append(
+            {
+                "cls": NAMES.index(detection["label"]),
+                "score": detection["confidence"],
+                "box": [
+                    detection["x"],
+                    detection["y"],
+                    detection["x"] + detection["w"],
+                    detection["y"] + detection["h"],
+                ],
+            }
+        )
 
     matched_pred = set()
     tp = 0
@@ -93,11 +93,13 @@ def evaluate(model, image, ground_truth, imgsz, conf, iou_threshold=0.5):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default=str(ROOT / "models" / "best.pt"))
-    parser.add_argument("--sizes", default="320,480,640")
-    parser.add_argument("--conf", type=float, default=0.25)
     args = parser.parse_args()
 
-    model = YOLO(args.model)
+    detector = TomatoDetector(args.model)
+    detector.load()
+    if detector.model is None:
+        raise RuntimeError(detector.load_error or "Model YOLO tidak berhasil dimuat")
+
     images = []
     for image_path in sorted(IMAGE_DIR.iterdir()):
         if image_path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
@@ -105,28 +107,27 @@ def main():
         label_path = LABEL_DIR / (image_path.stem + ".txt")
         images.append((image_path, read_labels(label_path)))
 
-    for imgsz in [int(value) for value in args.sizes.split(",")]:
-        total_tp = total_fp = total_fn = 0
-        print(f"\nimgsz={imgsz} conf={args.conf:.2f}")
-        for image_path, ground_truth in images:
-            image = Image.open(image_path).convert("RGB")
-            tp, fp, fn, precision, recall, f1, predicted = evaluate(
-                model, image, ground_truth, imgsz, args.conf
-            )
-            total_tp += tp
-            total_fp += fp
-            total_fn += fn
-            print(
-                f"  {image_path.name}: gt={len(ground_truth):2d} pred={predicted:2d} "
-                f"tp={tp:2d} fp={fp:2d} fn={fn:2d} P={precision:.2f} R={recall:.2f} F1={f1:.2f}"
-            )
-        precision = total_tp / (total_tp + total_fp) if total_tp + total_fp else 0.0
-        recall = total_tp / (total_tp + total_fn) if total_tp + total_fn else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-        print(
-            f"  TOTAL: tp={total_tp} fp={total_fp} fn={total_fn} "
-            f"P={precision:.3f} R={recall:.3f} F1={f1:.3f}"
+    total_tp = total_fp = total_fn = 0
+    for image_path, ground_truth in images:
+        with Image.open(image_path) as source:
+            image = source.convert("RGB")
+        tp, fp, fn, precision, recall, f1, predicted = evaluate(
+            detector, image, ground_truth
         )
+        total_tp += tp
+        total_fp += fp
+        total_fn += fn
+        print(
+            f"{image_path.name}: gt={len(ground_truth):2d} pred={predicted:2d} "
+            f"tp={tp:2d} fp={fp:2d} fn={fn:2d} P={precision:.2f} R={recall:.2f} F1={f1:.2f}"
+        )
+    precision = total_tp / (total_tp + total_fp) if total_tp + total_fp else 0.0
+    recall = total_tp / (total_tp + total_fn) if total_tp + total_fn else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    print(
+        f"TOTAL: tp={total_tp} fp={total_fp} fn={total_fn} "
+        f"P={precision:.3f} R={recall:.3f} F1={f1:.3f}"
+    )
 
 
 if __name__ == "__main__":

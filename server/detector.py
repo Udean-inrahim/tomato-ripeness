@@ -53,9 +53,7 @@ class TomatoDetector:
     def detect(self, pil_image: Image.Image):
         width, height = pil_image.size
         if self.model is not None:
-            yolo_dets = self._detect_yolo(pil_image)
-            color_dets = self._detect_ripe_color(pil_image)
-            dets = _merge_detections(yolo_dets, color_dets)
+            dets = self._detect_yolo(pil_image)
         else:
             dets = self._detect_fallback(pil_image)
 
@@ -116,77 +114,6 @@ class TomatoDetector:
             )
         dets.sort(key=lambda d: (d.y, d.x))
         return dets
-
-    def _detect_ripe_color(self, pil_image: Image.Image) -> List[Detection]:
-        """Deteksi tomat matang/setengah (merah/oranye) via segmentasi warna."""
-        rgb = np.asarray(pil_image.resize((256, 256))).astype(np.float32) / 255.0
-        hsv = _rgb_to_hsv(rgb)
-        h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
-
-        labels = np.zeros((256, 256), dtype=np.int8)
-        ripe = (s >= 0.40) & (v >= 0.25) & (v <= 0.97) & ((h <= 25) | (h >= 335))
-        half = (h >= 15) & (h <= 65) & (s >= 0.40) & (v >= 0.35) & (v <= 0.97)
-        labels[ripe] = _MATANG
-        labels[half] = _SETENGAH
-
-        dets: List[Detection] = []
-        visited = np.zeros((256, 256), dtype=bool)
-        for y in range(256):
-            for x in range(256):
-                if visited[y, x] or labels[y, x] == 0:
-                    continue
-                cells = _flood_fill(labels, visited, x, y)
-                if len(cells) < 6:
-                    continue
-
-                ys, xs = zip(*cells)
-                min_x, max_x = min(xs), max(xs)
-                min_y, max_y = min(ys), max(ys)
-                bw = max_x - min_x + 1
-                bh = max_y - min_y + 1
-
-                elongation = max(bw, bh) / max(bh, bw)
-                if elongation > 2.4:
-                    continue
-                if bw < 4 or bh < 4:
-                    continue
-                circ = _circularity(labels, cells, min_x, min_y, max_x, max_y)
-                if circ < 0.45:
-                    continue
-                fill = len(cells) / (bw * bh)
-                if fill < 0.35:
-                    continue
-
-                cell_idx = np.asarray(ys), np.asarray(xs)
-                mr = float(np.mean(rgb[cell_idx][..., 0])) * 255
-                mg = float(np.mean(rgb[cell_idx][..., 1])) * 255
-                mb = float(np.mean(rgb[cell_idx][..., 2])) * 255
-
-                ripe_dominant = mr - mg >= 25 and mr - mb >= 40
-                half_dominant = mr - mg >= 18 and mr - mb >= 35
-                if not (ripe_dominant or half_dominant):
-                    continue
-
-                ripe_cells = np.mean((h[cell_idx] <= 25) | (h[cell_idx] >= 335))
-                label = "matang" if ripe_dominant or ripe_cells >= 0.5 else "setengah_matang"
-
-                covered = (bw / 256) * (bh / 256)
-                if covered < 0.001 or covered > 0.5:
-                    continue
-
-                dets.append(
-                    Detection(
-                        label=label,
-                        confidence=0.8,
-                        x=round(min_x / 256, 4),
-                        y=round(min_y / 256, 4),
-                        w=round(bw / 256, 4),
-                        h=round(bh / 256, 4),
-                    )
-                )
-
-        dets.sort(key=lambda d: (d.y, d.x))
-        return dets[:18]
 
     # ---- Fallback warna ----
     def _detect_fallback(self, pil_image: Image.Image) -> List[Detection]:
@@ -310,39 +237,6 @@ def _flood_fill(labels: np.ndarray, visited: np.ndarray, start_x: int, start_y: 
         stack.append((x, y + 1))
         stack.append((x, y - 1))
     return cells
-
-
-def _iou(a: Detection, b: Detection) -> float:
-    ax1, ay1 = a.x, a.y
-    ax2, ay2 = a.x + a.w, a.y + a.h
-    bx1, by1 = b.x, b.y
-    bx2, by2 = b.x + b.w, b.y + b.h
-    ix1 = max(ax1, bx1)
-    iy1 = max(ay1, by1)
-    ix2 = min(ax2, bx2)
-    iy2 = min(ay2, by2)
-    if ix2 <= ix1 or iy2 <= iy1:
-        return 0.0
-    inter = (ix2 - ix1) * (iy2 - iy1)
-    area_a = a.w * a.h
-    area_b = b.w * b.h
-    union = area_a + area_b - inter
-    return inter / union if union > 0 else 0.0
-
-
-def _merge_detections(yolo_dets, color_dets):
-    """Gabung hasil YOLO + warna merah/oranye, buang duplikat (IoU)."""
-    merged = list(yolo_dets)
-    for cd in color_dets:
-        dup = False
-        for d in merged:
-            if _iou(d, cd) > 0.35:
-                dup = True
-                break
-        if not dup:
-            merged.append(cd)
-    merged.sort(key=lambda d: (d.y, d.x))
-    return merged[:18]
 
 
 def _rgb_to_hsv(rgb: np.ndarray) -> np.ndarray:
